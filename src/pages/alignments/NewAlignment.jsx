@@ -5,6 +5,7 @@ import { useData } from "../../context/DataContext";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../components/Toast";
 import { getInitials, TAT_PRESETS } from "../../components/helpers";
+import ImportFromSheet from "./ImportFromSheet";
 
 // Pull all 12-digit chunks from raw input (whether or not separated by commas/whitespace).
 // Dedupes while preserving first-seen order.
@@ -209,6 +210,17 @@ export default function NewAlignment() {
             <div className="form-hint">One-line summary. This is what everyone sees in the inbox.</div>
           </div>
         </div>
+
+        {/* Spreadsheet import — only useful in structured mode */}
+        {mode === "structured" && (
+          <ImportFromSheet
+            onImport={({ tickets: parsedTickets, fields: parsedFields }) => {
+              setTicketsRaw(parsedTickets.join("\n"));
+              setFields(parsedFields.length > 0 ? parsedFields : DEFAULT_FIELDS);
+              show(`Imported ${parsedTickets.length} ticket${parsedTickets.length === 1 ? "" : "s"}`);
+            }}
+          />
+        )}
 
         {/* Mode */}
         <div className="admin-card">
