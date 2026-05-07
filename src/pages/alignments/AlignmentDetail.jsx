@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Clock, AlertTriangle, CheckCircle2, Send, X, Eye } from "lucide-react";
+import { ArrowLeft, Clock, AlertTriangle, CheckCircle2, Send, Paperclip, Download, FileText } from "lucide-react";
 import { useData } from "../../context/DataContext";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../components/Toast";
-import { formatTAT, formatRelativeTime, getInitials, can } from "../../components/helpers";
+import { formatTAT, formatRelativeTime, getInitials } from "../../components/helpers";
 
 export default function AlignmentDetail() {
   const { alignmentId } = useParams();
@@ -13,15 +13,13 @@ export default function AlignmentDetail() {
   const { user } = useAuth();
   const { show } = useToast();
 
-  // Live tick for countdown
   const [, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setTick(x => x + 1), 30000); // every 30s
+    const t = setInterval(() => setTick(x => x + 1), 30000);
     return () => clearInterval(t);
   }, []);
 
   const alignment = alignments.find(a => a.id === alignmentId);
-
   const [replyText, setReplyText] = useState("");
 
   if (!alignment) {
@@ -53,7 +51,6 @@ export default function AlignmentDetail() {
   const canClose = amSender && alignment.status !== "closed";
   const canReply = amReceiver || amSender;
 
-  // Format deadline as a readable date
   const deadlineDate = new Date(alignment.deadline_at);
   const deadlineText = deadlineDate.toLocaleString("en-IN", {
     day: "numeric", month: "short", hour: "numeric", minute: "2-digit"
@@ -83,6 +80,21 @@ export default function AlignmentDetail() {
     await saveAlignment({ ...alignment, status: "open", closed_at: null });
     show("Alignment reopened");
   };
+
+  // Split structured fields into "common" (applies to all) and per-ticket scoped
+  const tickets = alignment.tickets || [];
+  const fields = alignment.structured_fields || [];
+
+  const fieldAppliesTo = (f) => {
+    const at = f.applies_to;
+    if (!at || at.length === 0) return ["all"];
+    return at;
+  };
+
+  const commonFields = fields.filter(f => fieldAppliesTo(f).includes("all"));
+  const fieldsForTicket = (tid) => fields.filter(f => fieldAppliesTo(f).includes(tid));
+
+  const attachments = alignment.attachments || [];
 
   return (
     <div className="content on-paper">
@@ -185,29 +197,108 @@ export default function AlignmentDetail() {
             <span className="section-num">01</span>
             <h2 className="section-title">The request</h2>
           </div>
-          {alignment.mode === "structured" && alignment.structured_fields?.length > 0 ? (
-            <table className="struct-table">
-              <thead>
-                <tr>
-                  <th style={{ width: "30%" }}>Field</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {alignment.structured_fields.map((f, i) => (
-                  <tr key={i}>
-                    <td style={{ fontWeight: 500 }}>{f.label}</td>
-                    <td style={{ whiteSpace: "pre-wrap" }}>{f.value || <span style={{ color: "var(--text-dark-mute)", fontStyle: "italic" }}>(empty)</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
+
+          {alignment.mode === "freeform" ? (
             <div className="card" style={{ whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.65 }}>
               {alignment.body}
             </div>
+          ) : (
+            <>
+              {/* Common fields (apply to all tickets) */}
+              {commonFields.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div className="subsection-head">Applies to all tickets</div>
+                  <table className="struct-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: "30%" }}>Field</th>
+                        <th>Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {commonFields.map((f, i) => (
+                        <tr key={i}>
+                          <td style={{ fontWeight: 500 }}>{f.label}</td>
+                          <td style={{ whiteSpace: "pre-wrap" }}>
+                            {f.value || <span style={{ color: "var(--text-dark-mute)", fontStyle: "italic" }}>(empty)</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Per-ticket cards */}
+              {tickets.length > 0 && (
+                <div className="ticket-cards">
+                  {tickets.map((tid, idx) => {
+                    const tFields = fieldsForTicket(tid);
+                    return (
+                      <div key={tid} className="ticket-card">
+                        <div className="ticket-card-head">
+                          <span className="ticket-card-num">#{String(idx + 1).padStart(2, "0")}</span>
+                          <span className="ticket-card-id">{tid}</span>
+                        </div>
+                        {tFields.length === 0 ? (
+                          <div className="ticket-card-empty">
+                            No ticket-specific fields. See "applies to all tickets" above.
+                          </div>
+                        ) : (
+                          <table className="struct-table compact">
+                            <tbody>
+                              {tFields.map((f, i) => (
+                                <tr key={i}>
+                                  <td style={{ fontWeight: 500, width: "30%" }}>{f.label}</td>
+                                  <td style={{ whiteSpace: "pre-wrap" }}>
+                                    {f.value || <span style={{ color: "var(--text-dark-mute)", fontStyle: "italic" }}>(empty)</span>}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Edge case: structured but no tickets and no common fields */}
+              {tickets.length === 0 && commonFields.length === 0 && fields.length === 0 && (
+                <div className="card" style={{ color: "var(--text-dark-mute)", fontStyle: "italic" }}>
+                  No structured content.
+                </div>
+              )}
+            </>
           )}
         </div>
+
+        {/* Attachments */}
+        {attachments.length > 0 && (
+          <div className="section">
+            <div className="section-head">
+              <span className="section-num">·</span>
+              <h2 className="section-title"><Paperclip size={18} style={{ verticalAlign: -3, marginRight: 6 }} />Attachments</h2>
+            </div>
+            <div className="attachments-list">
+              {attachments.map(a => (
+                <a key={a.id} href={a.data} download={a.name} className="attachment-row attachment-link">
+                  <FileText size={14} style={{ color: "var(--text-dark-mute)" }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-dark)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {a.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-dark-mute)", fontFamily: "'IBM Plex Mono', monospace" }}>
+                      {(a.size / 1024).toFixed(1)} KB
+                    </div>
+                  </div>
+                  <Download size={13} style={{ color: "var(--text-dark-mute)" }} />
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Thread */}
         {alignment.thread && alignment.thread.length > 0 && (
